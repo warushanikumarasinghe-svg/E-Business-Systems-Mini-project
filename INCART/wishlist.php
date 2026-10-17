@@ -88,7 +88,7 @@ $wishlistItems = $stmt->fetchAll();
         <div class="product-card">
           <form action="wishlist.php" method="POST" style="position:absolute; top:12px; right:12px; z-index:10;">
             <input type="hidden" name="product_id" value="<?php echo $prod['id']; ?>">
-            <button type="submit" name="remove_wishlist" class="wishlist-btn active" title="Remove from Wishlist">
+            <button type="submit" name="remove_wishlist" class="wishlist-btn active" value="1" title="Remove from Wishlist">
               <i class="fas fa-trash-alt"></i>
             </button>
           </form>
@@ -112,7 +112,7 @@ $wishlistItems = $stmt->fetchAll();
 
             <form action="wishlist.php" method="POST">
               <input type="hidden" name="product_id" value="<?php echo $prod['id']; ?>">
-              <button type="submit" name="move_to_cart" class="add-cart-btn" style="background:var(--primary); color:white;">
+              <button type="submit" name="move_to_cart" class="btn btn-primary wishlist-move-cart-btn" style="background:var(--primary); color:white; width:100%;">
                 <i class="fas fa-cart-plus"></i> MOVE TO CART
               </button>
             </form>
