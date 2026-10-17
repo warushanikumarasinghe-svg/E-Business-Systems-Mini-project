@@ -75,42 +75,112 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // 4b. Vegetable Weight Selection Controls (Product Details Page)
+  const weightButtons = document.querySelectorAll('.weight-opt-btn');
+  const selectedWeightInput = document.getElementById('selectedProductWeight');
+  const mainCartBtn = document.querySelector('.product-detail-info .add-cart-btn');
+  const priceDisplay = document.getElementById('productPriceDisplay');
+  const regPriceDisplay = document.getElementById('productRegularPriceDisplay');
+  const discountBadge = document.getElementById('productDiscountBadge');
+
+  if (weightButtons.length > 0) {
+    weightButtons.forEach(btn => {
+      btn.addEventListener('click', function() {
+        weightButtons.forEach(b => {
+          b.classList.remove('active');
+          b.style.border = '2px solid var(--gray-300)';
+          b.style.background = 'var(--white)';
+          b.style.color = 'var(--dark)';
+        });
+        this.classList.add('active');
+        this.style.border = '2px solid var(--primary)';
+        this.style.background = 'var(--primary-light)';
+        this.style.color = 'var(--primary-hover)';
+
+        const chosenWeight = this.getAttribute('data-weight');
+        const effectivePrice = parseFloat(this.getAttribute('data-effective-price')) || 0;
+        const regularPrice = parseFloat(this.getAttribute('data-regular-price')) || 0;
+        const hasDiscount = this.getAttribute('data-has-discount') === '1';
+
+        if (selectedWeightInput) selectedWeightInput.value = chosenWeight;
+        if (mainCartBtn) mainCartBtn.setAttribute('data-weight', chosenWeight);
+
+        if (priceDisplay) {
+          priceDisplay.innerText = 'Rs. ' + effectivePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+        if (regPriceDisplay) {
+          if (hasDiscount) {
+            regPriceDisplay.innerText = 'Rs. ' + regularPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            regPriceDisplay.style.display = 'inline';
+          } else {
+            regPriceDisplay.style.display = 'none';
+          }
+        }
+        if (discountBadge) {
+          if (hasDiscount && regularPrice > 0) {
+            const pct = Math.round(((regularPrice - effectivePrice) / regularPrice) * 100);
+            discountBadge.innerText = pct + '% OFF';
+            discountBadge.style.display = 'inline-block';
+          } else {
+            discountBadge.style.display = 'none';
+          }
+        }
+      });
+    });
+  }
+
   // 5. AJAX Add to Cart
   const addCartBtns = document.querySelectorAll('.add-cart-btn');
   addCartBtns.forEach(btn => {
     btn.addEventListener('click', function(e) {
       e.preventDefault();
+      if (this.dataset.cartRequestPending === '1') return;
+      this.dataset.cartRequestPending = '1';
       const productId = this.getAttribute('data-id');
+      const isCard = this.closest && this.closest('.product-card');
       const qtyInput = document.getElementById('productQty');
-      const qty = qtyInput ? parseInt(qtyInput.value) : 1;
+      const qty = isCard ? 1 : (qtyInput ? parseInt(qtyInput.value) : 1);
+      const selectedWeightField = document.getElementById('selectedProductWeight');
+      const weight = (!isCard && selectedWeightField && selectedWeightField.value)
+        ? selectedWeightField.value
+        : (this.getAttribute('data-weight') || '');
+
+      let postBody = `action=add&product_id=${encodeURIComponent(productId)}&quantity=${encodeURIComponent(qty)}`;
+      if (weight) {
+        postBody += `&weight=${encodeURIComponent(weight)}`;
+      }
 
       fetch('api/cart.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `action=add&product_id=${productId}&quantity=${qty}`
+        body: postBody
       })
       .then(res => res.json())
       .then(data => {
         if (data.status === 'success') {
           showToast(data.message, 'success');
-          // Update cart badge in header
           const badge = document.getElementById('headerCartBadge');
           if (badge) badge.innerText = data.cart_count;
         } else {
           showToast(data.message, 'error');
         }
       })
-      .catch(err => {
+      .catch(() => {
         showToast('Failed to update cart. Try again.', 'error');
+      })
+      .finally(() => {
+        this.dataset.cartRequestPending = '0';
       });
     });
   });
 
   // 6. AJAX Wishlist Toggle
-  const wishlistBtns = document.querySelectorAll('.wishlist-btn');
+  const wishlistBtns = document.querySelectorAll('.wishlist-btn:not([name="remove_wishlist"])');
   wishlistBtns.forEach(btn => {
     btn.addEventListener('click', function(e) {
       e.preventDefault();
+      if (this.dataset.cartRequestPending === '1') return;
+      this.dataset.cartRequestPending = '1';
       const productId = this.getAttribute('data-id');
 
       fetch('api/wishlist.php', {
