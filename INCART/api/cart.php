@@ -13,6 +13,7 @@ $action = $_POST['action'] ?? '';
 if ($action === 'add') {
     $product_id = isset($_POST['product_id']) ? (int)$_POST['product_id'] : 0;
     $quantity   = isset($_POST['quantity']) ? max(1, (int)$_POST['quantity']) : 1;
+    $weight     = isset($_POST['weight']) ? trim($_POST['weight']) : '';
 
     if ($product_id <= 0) {
         echo json_encode(['status' => 'error', 'message' => 'Invalid product ID.']);
@@ -20,7 +21,7 @@ if ($action === 'add') {
     }
 
     // Fetch product
-    $stmt = $db->prepare("SELECT id, name, stock_quantity, is_active FROM products WHERE id = ?");
+    $stmt = $db->prepare("SELECT id, name, stock_quantity, is_active, category_id, subcategory_id, weight FROM products WHERE id = ?");
     $stmt->execute([$product_id]);
     $product = $stmt->fetch();
 
@@ -29,15 +30,31 @@ if ($action === 'add') {
         exit;
     }
 
+    // Determine weight for vegetable products
+    $selectedWeight = null;
+    if (is_vegetable_product($product)) {
+        $allowedWeights = get_vegetable_weights();
+        if (in_array($weight, $allowedWeights, true)) {
+            $selectedWeight = $weight;
+        } else {
+            $selectedWeight = '500g'; // Default vegetable weight
+        }
+    }
+
     $cart_id = get_cart_id(true);
     if (!$cart_id) {
         echo json_encode(['status' => 'error', 'message' => 'Could not initialize shopping cart session.']);
         exit;
     }
 
-    // Check existing item in cart
-    $checkStmt = $db->prepare("SELECT id, quantity FROM cart_items WHERE cart_id = ? AND product_id = ?");
-    $checkStmt->execute([$cart_id, $product_id]);
+    // Check existing item in cart matching both product_id and selected_weight
+    if ($selectedWeight !== null) {
+        $checkStmt = $db->prepare("SELECT id, quantity FROM cart_items WHERE cart_id = ? AND product_id = ? AND selected_weight = ?");
+        $checkStmt->execute([$cart_id, $product_id, $selectedWeight]);
+    } else {
+        $checkStmt = $db->prepare("SELECT id, quantity FROM cart_items WHERE cart_id = ? AND product_id = ? AND (selected_weight IS NULL OR selected_weight = '')");
+        $checkStmt->execute([$cart_id, $product_id]);
+    }
     $existing = $checkStmt->fetch();
 
     $existing_qty = $existing ? (int)$existing['quantity'] : 0;
@@ -57,27 +74,34 @@ if ($action === 'add') {
         $upd = $db->prepare("UPDATE cart_items SET quantity = quantity + ? WHERE id = ?");
         $upd->execute([$quantity, $existing['id']]);
     } else {
-        $ins = $db->prepare("INSERT INTO cart_items (cart_id, product_id, quantity) VALUES (?, ?, ?)");
-        $ins->execute([$cart_id, $product_id, $quantity]);
+        $ins = $db->prepare("INSERT INTO cart_items (cart_id, product_id, quantity, selected_weight) VALUES (?, ?, ?, ?)");
+        $ins->execute([$cart_id, $product_id, $quantity, $selectedWeight]);
     }
 
     $cart_count = get_cart_count();
+    $itemLabel = htmlspecialchars($product['name']) . ($selectedWeight ? " ({$selectedWeight})" : "");
 
     echo json_encode([
         'status' => 'success',
-        'message' => htmlspecialchars($product['name']) . ' added to your cart!',
+        'message' => $itemLabel . ' added to your cart!',
         'cart_count' => $cart_count
     ]);
     exit;
 
 } elseif ($action === 'update') {
-    $product_id = isset($_POST['product_id']) ? (int)$_POST['product_id'] : 0;
-    $quantity   = isset($_POST['quantity']) ? max(1, (int)$_POST['quantity']) : 1;
-    $cart_id    = get_cart_id(false);
+    $cart_item_id = isset($_POST['cart_item_id']) ? (int)$_POST['cart_item_id'] : 0;
+    $product_id   = isset($_POST['product_id']) ? (int)$_POST['product_id'] : 0;
+    $quantity     = isset($_POST['quantity']) ? max(1, (int)$_POST['quantity']) : 1;
+    $cart_id      = get_cart_id(false);
 
-    if ($cart_id && $product_id > 0) {
-        $upd = $db->prepare("UPDATE cart_items SET quantity = ? WHERE cart_id = ? AND product_id = ?");
-        $upd->execute([$quantity, $cart_id, $product_id]);
+    if ($cart_id) {
+        if ($cart_item_id > 0) {
+            $upd = $db->prepare("UPDATE cart_items SET quantity = ? WHERE cart_id = ? AND id = ?");
+            $upd->execute([$quantity, $cart_id, $cart_item_id]);
+        } elseif ($product_id > 0) {
+            $upd = $db->prepare("UPDATE cart_items SET quantity = ? WHERE cart_id = ? AND product_id = ?");
+            $upd->execute([$quantity, $cart_id, $product_id]);
+        }
     }
 
     $cart_count = get_cart_count();
@@ -89,12 +113,18 @@ if ($action === 'add') {
     exit;
 
 } elseif ($action === 'remove') {
-    $product_id = isset($_POST['product_id']) ? (int)$_POST['product_id'] : 0;
-    $cart_id    = get_cart_id(false);
+    $cart_item_id = isset($_POST['cart_item_id']) ? (int)$_POST['cart_item_id'] : 0;
+    $product_id   = isset($_POST['product_id']) ? (int)$_POST['product_id'] : 0;
+    $cart_id      = get_cart_id(false);
 
-    if ($cart_id && $product_id > 0) {
-        $del = $db->prepare("DELETE FROM cart_items WHERE cart_id = ? AND product_id = ?");
-        $del->execute([$cart_id, $product_id]);
+    if ($cart_id) {
+        if ($cart_item_id > 0) {
+            $del = $db->prepare("DELETE FROM cart_items WHERE cart_id = ? AND id = ?");
+            $del->execute([$cart_id, $cart_item_id]);
+        } elseif ($product_id > 0) {
+            $del = $db->prepare("DELETE FROM cart_items WHERE cart_id = ? AND product_id = ?");
+            $del->execute([$cart_id, $product_id]);
+        }
     }
 
     $cart_count = get_cart_count();
