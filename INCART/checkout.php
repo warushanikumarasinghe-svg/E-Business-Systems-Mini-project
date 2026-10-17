@@ -26,7 +26,10 @@ $stmt = $db->prepare("
         p.price, 
         p.discount_price, 
         p.stock_quantity, 
-        p.unit
+        p.unit,
+        p.weight,
+        p.category_id,
+        p.subcategory_id
     FROM cart_items ci
     JOIN products p ON ci.product_id = p.id
     WHERE ci.cart_id = ?
@@ -75,12 +78,8 @@ $subtotal = 0;
 
 foreach ($cartItems as $item) {
 
-    $price = (
-        !empty($item['discount_price']) &&
-        $item['discount_price'] < $item['price']
-    )
-        ? $item['discount_price']
-        : $item['price'];
+    $pricing = get_product_pricing($item, $item['selected_weight'] ?? null);
+    $price = $pricing['effective_price'];
 
     $subtotal += $price * $item['quantity'];
 }
@@ -283,33 +282,34 @@ if (
                     product_name,
                     price,
                     quantity,
-                    subtotal
+                    subtotal,
+                    selected_weight
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ");
 
 
             foreach ($cartItems as $item) {
 
-                $itemPrice = (
-                    !empty($item['discount_price']) &&
-                    $item['discount_price'] < $item['price']
-                )
-                    ? $item['discount_price']
-                    : $item['price'];
-
+                $pricing = get_product_pricing($item, $item['selected_weight'] ?? null);
+                $itemPrice = $pricing['effective_price'];
 
                 $itemSubtotal =
                     $itemPrice * $item['quantity'];
 
+                $displayName = $item['name'];
+                if (!empty($item['selected_weight'])) {
+                    $displayName .= ' (' . $item['selected_weight'] . ')';
+                }
 
                 $insItem->execute([
                     $order_id,
                     $item['product_id'],
-                    $item['name'],
+                    $displayName,
                     $itemPrice,
                     $item['quantity'],
-                    $itemSubtotal
+                    $itemSubtotal,
+                    $item['selected_weight'] ?? null
                 ]);
             }
 
@@ -1715,12 +1715,8 @@ if (
 
                         <?php foreach ($cartItems as $item):
 
-                            $price = (
-                                !empty($item['discount_price']) &&
-                                $item['discount_price'] < $item['price']
-                            )
-                                ? $item['discount_price']
-                                : $item['price'];
+                            $pricing = get_product_pricing($item, $item['selected_weight'] ?? null);
+                            $price = $pricing['effective_price'];
 
                         ?>
 
@@ -1745,6 +1741,11 @@ if (
                                         );
                                         ?>
                                     </strong>
+                                    <?php if (!empty($item['selected_weight'])): ?>
+                                        <span class="badge" style="background:#e8f5e9; color:#2e7d32; font-size:11px; padding:2px 6px; border-radius:4px; margin-left:4px; font-weight:600;">
+                                            <?php echo sanitize($item['selected_weight']); ?>
+                                        </span>
+                                    <?php endif; ?>
 
 
                                     <span
@@ -1764,6 +1765,9 @@ if (
                                         <?php
                                         echo format_price($price);
                                         ?>
+                                        <?php if (!empty($item['selected_weight'])): ?>
+                                            <span style="font-size:11px; color:#2e7d32;">(per <?php echo sanitize($item['selected_weight']); ?>)</span>
+                                        <?php endif; ?>
 
                                     </span>
 
