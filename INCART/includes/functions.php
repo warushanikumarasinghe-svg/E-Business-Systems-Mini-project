@@ -90,69 +90,179 @@ function require_admin() {
 
 // Get or Create Cart ID (by valid user_id or session_id)
 // $create_if_not_exists = false will NOT insert a new cart record if one does not exist
+
 function get_cart_id($create_if_not_exists = true) {
     $db = getDB();
     $user_id = get_valid_logged_in_user_id();
     $session_id = session_id();
 
     if ($user_id !== null) {
-        // 1. Check if cart already exists for this valid user_id
-        $stmt = $db->prepare("SELECT id FROM carts WHERE user_id = ?");
-        $stmt->execute([$user_id]);
-        $cart = $stmt->fetch();
+        try {
+            $db->beginTransaction();
 
-        if ($cart) {
-            return (int)$cart['id'];
-        }
+            // Find the logged-in user's existing cart.
+            $stmt = $db->prepare(
+                "SELECT id FROM carts WHERE user_id = ? LIMIT 1"
+            );
+            $stmt->execute([$user_id]);
+            $userCart = $stmt->fetch();
 
-        // 2. Check if a guest cart exists for current session_id to associate with valid user_id
-        if (!empty($session_id)) {
-            $stmtGuest = $db->prepare("SELECT id FROM carts WHERE session_id = ? AND user_id IS NULL");
-            $stmtGuest->execute([$session_id]);
-            $guestCart = $stmtGuest->fetch();
+            // Find the guest cart from the current session.
+            $guestCart = null;
 
-            if ($guestCart) {
-                $db->prepare("UPDATE carts SET user_id = ? WHERE id = ?")->execute([$user_id, $guestCart['id']]);
-                return (int)$guestCart['id'];
+            if ($session_id !== '') {
+                $stmt = $db->prepare(
+                    "SELECT id FROM carts
+                     WHERE session_id = ? AND user_id IS NULL
+                     LIMIT 1"
+                );
+                $stmt->execute([$session_id]);
+                $guestCart = $stmt->fetch();
             }
-        }
 
-        // 3. Do not create if not requested
-        if (!$create_if_not_exists) {
+            // If the user has no cart, convert the guest cart
+            // into the user's cart.
+            if (!$userCart && $guestCart) {
+                $stmt = $db->prepare(
+                    "UPDATE carts SET user_id = ? WHERE id = ?"
+                );
+                $stmt->execute([$user_id, $guestCart['id']]);
+
+                $cartId = (int)$guestCart['id'];
+                $db->commit();
+
+                return $cartId;
+            }
+
+            // If both carts exist, merge guest items into user cart.
+            if ($userCart && $guestCart) {
+                $userCartId = (int)$userCart['id'];
+                $guestCartId = (int)$guestCart['id'];
+
+                if ($userCartId !== $guestCartId) {
+                    $stmt = $db->prepare(
+                        "SELECT product_id, quantity
+                         FROM cart_items WHERE cart_id = ?"
+                    );
+                    $stmt->execute([$guestCartId]);
+                    $guestItems = $stmt->fetchAll();
+
+                    foreach ($guestItems as $item) {
+                        $stmt = $db->prepare(
+                            "SELECT id, quantity FROM cart_items
+                             WHERE cart_id = ? AND product_id = ?
+                             LIMIT 1"
+                        );
+                        $stmt->execute([
+                            $userCartId,
+                            $item['product_id']
+                        ]);
+                        $existingItem = $stmt->fetch();
+
+                        if ($existingItem) {
+                            $stmt = $db->prepare(
+                                "UPDATE cart_items
+                                 SET quantity = quantity + ?
+                                 WHERE id = ?"
+                            );
+                            $stmt->execute([
+                                (int)$item['quantity'],
+                                $existingItem['id']
+                            ]);
+                        } else {
+                            $stmt = $db->prepare(
+                                "INSERT INTO cart_items
+                                 (cart_id, product_id, quantity)
+                                 VALUES (?, ?, ?)"
+                            );
+                            $stmt->execute([
+                                $userCartId,
+                                $item['product_id'],
+                                (int)$item['quantity']
+                            ]);
+                        }
+                    }
+
+                    // Remove the old guest cart after merging.
+                    $db->prepare(
+                        "DELETE FROM cart_items WHERE cart_id = ?"
+                    )->execute([$guestCartId]);
+
+                    $db->prepare(
+                        "DELETE FROM carts WHERE id = ?"
+                    )->execute([$guestCartId]);
+                }
+
+                $db->commit();
+                return $userCartId;
+            }
+
+            // Existing user cart, with no guest cart to merge.
+            if ($userCart) {
+                $cartId = (int)$userCart['id'];
+                $db->commit();
+
+                return $cartId;
+            }
+
+            // Do not create a new cart if not requested.
+            if (!$create_if_not_exists) {
+                $db->commit();
+                return null;
+            }
+
+            // Create a cart for the logged-in user.
+            $stmt = $db->prepare(
+                "INSERT INTO carts (user_id, session_id)
+                 VALUES (?, ?)"
+            );
+            $stmt->execute([$user_id, $session_id]);
+
+            $cartId = (int)$db->lastInsertId();
+            $db->commit();
+
+            return $cartId;
+
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+
+            error_log('Cart merge error: ' . $e->getMessage());
             return null;
         }
-
-        // 4. Create new cart for valid user_id
-        $stmtNew = $db->prepare("INSERT INTO carts (user_id, session_id) VALUES (?, ?)");
-        $stmtNew->execute([$user_id, $session_id]);
-        return (int)$db->lastInsertId();
-
-    } else {
-        // Guest User (user_id is NULL)
-        if (empty($session_id)) {
-            return null;
-        }
-
-        // 1. Check if guest cart exists for session_id
-        $stmt = $db->prepare("SELECT id FROM carts WHERE session_id = ? AND user_id IS NULL");
-        $stmt->execute([$session_id]);
-        $cart = $stmt->fetch();
-
-        if ($cart) {
-            return (int)$cart['id'];
-        }
-
-        // 2. Do not create if not requested
-        if (!$create_if_not_exists) {
-            return null;
-        }
-
-        // 3. Create new guest cart with NULL user_id
-        $stmtNew = $db->prepare("INSERT INTO carts (user_id, session_id) VALUES (NULL, ?)");
-        $stmtNew->execute([$session_id]);
-        return (int)$db->lastInsertId();
     }
+
+    // Guest user: find or create the session cart.
+    if ($session_id === '') {
+        return null;
+    }
+
+    $stmt = $db->prepare(
+        "SELECT id FROM carts
+         WHERE session_id = ? AND user_id IS NULL
+         LIMIT 1"
+    );
+    $stmt->execute([$session_id]);
+    $cart = $stmt->fetch();
+
+    if ($cart) {
+        return (int)$cart['id'];
+    }
+
+    if (!$create_if_not_exists) {
+        return null;
+    }
+
+    $stmt = $db->prepare(
+        "INSERT INTO carts (user_id, session_id)
+         VALUES (NULL, ?)"
+    );
+    $stmt->execute([$session_id]);
+
+    return (int)$db->lastInsertId();
 }
+
 
 // Cart Quantity Counter
 function get_cart_count() {
@@ -230,4 +340,72 @@ function display_flash_messages() {
         unset($_SESSION['flash_error']);
     }
     return $output;
+}
+
+// ==========================================
+// Vegetable Weight & Grams Selling Helpers
+// ==========================================
+function get_vegetable_weights() {
+    return ['100g', '250g', '500g', '1kg'];
+}
+
+function parse_weight_in_grams($weightStr) {
+    if (empty($weightStr)) return 500;
+    $str = strtolower(trim($weightStr));
+    if (strpos($str, 'kg') !== false) {
+        $num = (float)str_replace(['kg', ' '], '', $str);
+        return $num > 0 ? (int)($num * 1000) : 1000;
+    }
+    if (strpos($str, 'g') !== false) {
+        $num = (float)str_replace(['g', ' '], '', $str);
+        return $num > 0 ? (int)$num : 500;
+    }
+    return 500;
+}
+
+function is_vegetable_product($product) {
+    if (!$product) return false;
+    $subcatId = (int)($product['subcategory_id'] ?? 0);
+    $subcatName = strtolower($product['subcategory_name'] ?? '');
+    $prodName = strtolower($product['name'] ?? '');
+    
+    if ($subcatId === 2 || strpos($subcatName, 'vegetable') !== false) {
+        return true;
+    }
+    
+    $vegNames = ['tomato', 'carrot', 'potato', 'onion', 'capsicum'];
+    foreach ($vegNames as $vn) {
+        if (strpos($prodName, $vn) !== false) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function calculate_weight_price($basePrice, $baseWeightGrams, $targetWeightGrams) {
+    if ($baseWeightGrams <= 0) $baseWeightGrams = 500;
+    return round(((float)$basePrice / $baseWeightGrams) * $targetWeightGrams, 2);
+}
+
+function get_product_pricing($product, $selectedWeight = null) {
+    $regularPrice = (float)($product['price'] ?? 0);
+    $discountPrice = !empty($product['discount_price']) ? (float)$product['discount_price'] : 0.00;
+    
+    if (is_vegetable_product($product) && !empty($selectedWeight)) {
+        $baseGrams = parse_weight_in_grams($product['weight'] ?? '500g');
+        $targetGrams = parse_weight_in_grams($selectedWeight);
+        $regularPrice = calculate_weight_price($regularPrice, $baseGrams, $targetGrams);
+        if ($discountPrice > 0) {
+            $discountPrice = calculate_weight_price($discountPrice, $baseGrams, $targetGrams);
+        }
+    }
+    
+    $effectivePrice = ($discountPrice > 0 && $discountPrice < $regularPrice) ? $discountPrice : $regularPrice;
+    
+    return [
+        'regular_price' => $regularPrice,
+        'discount_price' => $discountPrice,
+        'effective_price' => $effectivePrice,
+        'has_discount' => ($discountPrice > 0 && $discountPrice < $regularPrice)
+    ];
 }
