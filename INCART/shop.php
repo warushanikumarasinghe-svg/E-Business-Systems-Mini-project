@@ -317,6 +317,7 @@ $allBrands = $db->query("SELECT * FROM brands WHERE is_active = 1 ORDER BY name 
             $inWishlist = is_in_wishlist($prod['id']);
             $hasDiscount = !empty($prod['discount_price']) && $prod['discount_price'] < $prod['price'];
             $discountPercent = $hasDiscount ? round((($prod['price'] - $prod['discount_price']) / $prod['price']) * 100) : 0;
+            $isVeg = is_vegetable_product($prod);
           ?>
             <div class="product-card">
               <?php if ($hasDiscount): ?>
@@ -346,9 +347,12 @@ $allBrands = $db->query("SELECT * FROM brands WHERE is_active = 1 ORDER BY name 
                   <?php else: ?>
                     <span class="current-price"><?php echo format_price($prod['price']); ?></span>
                   <?php endif; ?>
+                  <?php if ($isVeg): ?>
+                    <span style="font-size:12px; font-weight:600; color:var(--success); margin-left:4px;">(per <?php echo sanitize($prod['weight'] ?? '500g'); ?>)</span>
+                  <?php endif; ?>
                 </div>
 
-                <button class="add-cart-btn" data-id="<?php echo $prod['id']; ?>">
+                <button class="add-cart-btn" data-id="<?php echo $prod['id']; ?>" <?php if ($isVeg): ?>data-weight="<?php echo sanitize($prod['weight'] ?? '500g'); ?>"<?php endif; ?>>
                   <i class="fas fa-cart-plus"></i> ADD TO CART
                 </button>
               </div>
