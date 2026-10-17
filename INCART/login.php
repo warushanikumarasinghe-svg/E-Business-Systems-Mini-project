@@ -97,7 +97,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $_SESSION['user_role'] =
                 $user['role'];
-
+            
+            // Merge guest cart into the logged-in user's cart
+            get_cart_id(true);
 
             // -----------------------------------------
             // Login success message
