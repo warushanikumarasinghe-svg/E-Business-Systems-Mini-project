@@ -117,21 +117,24 @@ $bestSellers = $bestsellersStmt->fetchAll();
           <div class="category-icon">
 
             <?php
-            $icon = trim($cat['icon'] ?? '');
+            $catImg = !empty($cat['image']) ? trim($cat['image']) : '';
+            if (empty($catImg) && !empty($cat['icon']) && preg_match('/\.(jpg|jpeg|png|gif|webp)$/i', $cat['icon'])) {
+                $catImg = trim($cat['icon']);
+            }
 
-            // Check whether icon value is an image
-            if (!empty($icon) && preg_match('/\.(jpg|jpeg|png|gif|webp)$/i', $icon)):
+            if (!empty($catImg)):
             ?>
 
               <img
-                src="<?php echo sanitize($icon); ?>"
+                src="<?php echo sanitize($catImg); ?>"
                 alt="<?php echo sanitize($cat['name']); ?>"
                 class="category-image"
+                onerror="this.onerror=null; this.src='assets/images/category/default.jpg';"
               >
 
             <?php else: ?>
 
-              <i class="fas <?php echo sanitize($icon ?: 'fa-shopping-basket'); ?>"></i>
+              <i class="fas <?php echo sanitize($cat['icon'] ?: 'fa-shopping-basket'); ?>"></i>
 
             <?php endif; ?>
 
@@ -168,6 +171,7 @@ $bestSellers = $bestsellersStmt->fetchAll();
         $inWishlist = is_in_wishlist($prod['id']);
         $hasDiscount = !empty($prod['discount_price']) && $prod['discount_price'] < $prod['price'];
         $discountPercent = $hasDiscount ? round((($prod['price'] - $prod['discount_price']) / $prod['price']) * 100) : 0;
+        $isVeg = is_vegetable_product($prod);
       ?>
         <div class="product-card">
           <?php if ($hasDiscount): ?>
@@ -197,9 +201,12 @@ $bestSellers = $bestsellersStmt->fetchAll();
               <?php else: ?>
                 <span class="current-price"><?php echo format_price($prod['price']); ?></span>
               <?php endif; ?>
+              <?php if ($isVeg): ?>
+                <span style="font-size:12px; font-weight:600; color:var(--success); margin-left:4px;">(per <?php echo sanitize($prod['weight'] ?? '500g'); ?>)</span>
+              <?php endif; ?>
             </div>
 
-            <button class="add-cart-btn" data-id="<?php echo $prod['id']; ?>">
+            <button class="add-cart-btn" data-id="<?php echo $prod['id']; ?>" <?php if ($isVeg): ?>data-weight="<?php echo sanitize($prod['weight'] ?? '500g'); ?>"<?php endif; ?>>
               <i class="fas fa-cart-plus"></i> ADD TO CART
             </button>
           </div>
@@ -236,6 +243,7 @@ $bestSellers = $bestsellersStmt->fetchAll();
           $img = $prod['primary_image'] ?? 'assets/images/products/default.jpg';
           $inWishlist = is_in_wishlist($prod['id']);
           $discountPercent = round((($prod['price'] - $prod['discount_price']) / $prod['price']) * 100);
+          $isVeg = is_vegetable_product($prod);
         ?>
           <div class="product-card">
             <span class="badge-discount" style="background:#d32f2f;"><?php echo $discountPercent; ?>% OFF</span>
@@ -259,9 +267,12 @@ $bestSellers = $bestsellersStmt->fetchAll();
               <div class="product-price-row">
                 <span class="current-price" style="color:#d32f2f;"><?php echo format_price($prod['discount_price']); ?></span>
                 <span class="original-price"><?php echo format_price($prod['price']); ?></span>
+                <?php if ($isVeg): ?>
+                  <span style="font-size:12px; font-weight:600; color:var(--success); margin-left:4px;">(per <?php echo sanitize($prod['weight'] ?? '500g'); ?>)</span>
+                <?php endif; ?>
               </div>
 
-              <button class="add-cart-btn" data-id="<?php echo $prod['id']; ?>">
+              <button class="add-cart-btn" data-id="<?php echo $prod['id']; ?>" <?php if ($isVeg): ?>data-weight="<?php echo sanitize($prod['weight'] ?? '500g'); ?>"<?php endif; ?>>
                 <i class="fas fa-cart-plus"></i> ADD TO CART
               </button>
             </div>
@@ -300,6 +311,7 @@ $bestSellers = $bestsellersStmt->fetchAll();
         $inWishlist = is_in_wishlist($prod['id']);
         $hasDiscount = !empty($prod['discount_price']) && $prod['discount_price'] < $prod['price'];
         $discountPercent = $hasDiscount ? round((($prod['price'] - $prod['discount_price']) / $prod['price']) * 100) : 0;
+        $isVeg = is_vegetable_product($prod);
       ?>
         <div class="product-card">
           <?php if ($hasDiscount): ?>
@@ -329,9 +341,12 @@ $bestSellers = $bestsellersStmt->fetchAll();
               <?php else: ?>
                 <span class="current-price"><?php echo format_price($prod['price']); ?></span>
               <?php endif; ?>
+              <?php if ($isVeg): ?>
+                <span style="font-size:12px; font-weight:600; color:var(--success); margin-left:4px;">(per <?php echo sanitize($prod['weight'] ?? '500g'); ?>)</span>
+              <?php endif; ?>
             </div>
 
-            <button class="add-cart-btn" data-id="<?php echo $prod['id']; ?>">
+            <button class="add-cart-btn" data-id="<?php echo $prod['id']; ?>" <?php if ($isVeg): ?>data-weight="<?php echo sanitize($prod['weight'] ?? '500g'); ?>"<?php endif; ?>>
               <i class="fas fa-cart-plus"></i> ADD TO CART
             </button>
           </div>
