@@ -125,7 +125,7 @@ $user = current_user();
             <div class="dropdown-menu">
               <?php foreach ($categories as $cat): ?>
                 <a href="shop.php?category=<?php echo $cat['id']; ?>">
-                  <span><i class="fas <?php echo sanitize($cat['icon']); ?>"></i> <?php echo sanitize($cat['name']); ?></span>
+                  <span><i class="fas <?php echo sanitize(!empty($cat['icon']) && !preg_match('/\.(jpg|jpeg|png|gif|webp)$/i', $cat['icon']) ? $cat['icon'] : 'fa-shopping-basket'); ?>"></i> <?php echo sanitize($cat['name']); ?></span>
                   <i class="fas fa-chevron-right" style="font-size:10px;"></i>
                 </a>
               <?php endforeach; ?>
