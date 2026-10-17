@@ -1089,3 +1089,44 @@ img {
     object-fit: contain;
     display: block;
 }
+
+
+/* Practical 08 fix: prevent mobile viewport overflow without changing desktop styling. */
+html, body {
+  max-width: 100%;
+}
+@media (max-width: 768px) {
+  body { overflow-x: hidden; }
+  .container { width: 100%; max-width: 100%; padding-left: 14px; padding-right: 14px; }
+  .nav-wrapper { align-items: stretch; flex-direction: column; width: 100%; }
+  .nav-links { width: 100%; flex-wrap: wrap; justify-content: flex-start; gap: 0; }
+  .nav-links li { max-width: 100%; }
+  .nav-links a { padding: 10px 11px; font-size: 12px; white-space: normal; }
+  .nav-wrapper > div { padding: 8px 10px; }
+  .hero-section .container { min-height: 360px; padding-top: 28px; padding-bottom: 28px; }
+  .hero-content { width: 100%; max-width: 100%; }
+  .hero-title { font-size: clamp(26px, 6vw, 34px); overflow-wrap: anywhere; }
+  .hero-desc { font-size: 15px; }
+  .product-detail-container { grid-template-columns: minmax(0, 1fr); gap: 22px; padding: 18px; }
+  .product-detail-container > *, .product-detail-info { min-width: 0; }
+  .gallery-main { height: min(75vw, 360px); }
+  .weight-options { gap: 8px !important; }
+  .weight-opt-btn { flex: 1 1 82px; min-width: 0; padding: 9px 10px !important; }
+  .product-detail-info > div[style*="display:flex"] { flex-wrap: wrap; gap: 12px !important; }
+  .product-detail-info .add-cart-btn { flex: 1 1 160px; }
+  .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .product-card { min-width: 0; }
+  .product-name { overflow-wrap: anywhere; }
+  .cart-table-wrapper, .table-responsive { max-width: 100%; overflow-x: auto; }
+  .cart-layout, .cart-content, .cart-summary { min-width: 0; }
+}
+@media (max-width: 480px) {
+  .header-wrapper { gap: 10px; }
+  .header-actions { flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .nav-links a { padding: 9px 8px; font-size: 11px; letter-spacing: 0; }
+  .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+  .product-detail-info h1 { font-size: 24px; }
+  .product-detail-container { margin: 18px 0; padding: 12px; }
+  .toast-container { left: 12px; right: 12px; bottom: 12px; }
+  .toast { max-width: 100%; }
+}
