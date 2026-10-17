@@ -107,6 +107,11 @@ $latestProducts = $latestStmt->fetchAll();
 $hasDiscount = !empty($product['discount_price']) && $product['discount_price'] < $product['price'];
 $discountPercent = $hasDiscount ? round((($product['price'] - $product['discount_price']) / $product['price']) * 100) : 0;
 $inWishlist = is_in_wishlist($product['id']);
+
+$isVegetable = is_vegetable_product($product);
+$vegWeights = $isVegetable ? get_vegetable_weights() : [];
+$defaultWeight = $isVegetable ? '500g' : '';
+$defaultPricing = $isVegetable ? get_product_pricing($product, $defaultWeight) : null;
 ?>
 
 <div class="container">
@@ -146,13 +151,20 @@ $inWishlist = is_in_wishlist($product['id']);
         <span style="font-size:13px; color:var(--gray-600);">| SKU: <strong><?php echo sanitize($product['sku']); ?></strong></span>
       </div>
 
-      <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:20px;">
-        <?php if ($hasDiscount): ?>
-          <span style="font-size:32px; font-weight:800; color:var(--primary);"><?php echo format_price($product['discount_price']); ?></span>
-          <span style="font-size:18px; color:var(--gray-600); text-decoration:line-through;"><?php echo format_price($product['price']); ?></span>
-          <span class="badge-discount" style="position:static; font-size:14px;"><?php echo $discountPercent; ?>% OFF</span>
+      <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
+        <?php if ($isVegetable): ?>
+          <span id="productPriceDisplay" style="font-size:32px; font-weight:800; color:var(--primary);"><?php echo format_price($defaultPricing['effective_price']); ?></span>
+          <span id="productRegularPriceDisplay" style="font-size:18px; color:var(--gray-600); text-decoration:line-through; <?php echo $defaultPricing['has_discount'] ? '' : 'display:none;'; ?>"><?php echo format_price($defaultPricing['regular_price']); ?></span>
+          <span id="productDiscountBadge" class="badge-discount" style="position:static; font-size:14px; <?php echo $defaultPricing['has_discount'] ? '' : 'display:none;'; ?>"><?php echo $discountPercent; ?>% OFF</span>
+          <span style="font-size:13px; font-weight:700; color:var(--success); background:#e8f5e9; padding:4px 10px; border-radius:12px;"><i class="fas fa-balance-scale"></i> Sold in Grams (g)</span>
         <?php else: ?>
-          <span style="font-size:32px; font-weight:800; color:var(--primary);"><?php echo format_price($product['price']); ?></span>
+          <?php if ($hasDiscount): ?>
+            <span style="font-size:32px; font-weight:800; color:var(--primary);"><?php echo format_price($product['discount_price']); ?></span>
+            <span style="font-size:18px; color:var(--gray-600); text-decoration:line-through;"><?php echo format_price($product['price']); ?></span>
+            <span class="badge-discount" style="position:static; font-size:14px;"><?php echo $discountPercent; ?>% OFF</span>
+          <?php else: ?>
+            <span style="font-size:32px; font-weight:800; color:var(--primary);"><?php echo format_price($product['price']); ?></span>
+          <?php endif; ?>
         <?php endif; ?>
       </div>
 
@@ -174,16 +186,45 @@ $inWishlist = is_in_wishlist($product['id']);
         </p>
       </div>
 
+      <!-- VEGETABLE WEIGHT OPTIONS (100g, 250g, 500g, 1kg) -->
+      <?php if ($isVegetable): ?>
+        <div class="weight-selector-container" style="margin-bottom:25px; background:var(--gray-100); padding:16px; border-radius:var(--radius-md); border:1px solid var(--gray-200);">
+          <label style="display:block; font-weight:800; font-size:14px; margin-bottom:10px; color:var(--dark);">
+            <i class="fas fa-weight-hanging" style="color:var(--primary); margin-right:6px;"></i> Select Weight :
+          </label>
+          <div class="weight-options" style="display:flex; gap:10px; flex-wrap:wrap;">
+            <?php foreach ($vegWeights as $wOpt): 
+              $wPricing = get_product_pricing($product, $wOpt);
+              $isActive = ($wOpt === $defaultWeight);
+            ?>
+              <button type="button" 
+                      class="weight-opt-btn <?php echo $isActive ? 'active' : ''; ?>" 
+                      data-weight="<?php echo $wOpt; ?>"
+                      data-effective-price="<?php echo $wPricing['effective_price']; ?>"
+                      data-regular-price="<?php echo $wPricing['regular_price']; ?>"
+                      data-has-discount="<?php echo $wPricing['has_discount'] ? '1' : '0'; ?>"
+                      style="padding:10px 18px; border:2px solid <?php echo $isActive ? 'var(--primary)' : 'var(--gray-300)'; ?>; background:<?php echo $isActive ? 'var(--primary-light)' : 'var(--white)'; ?>; color:<?php echo $isActive ? 'var(--primary-hover)' : 'var(--dark)'; ?>; font-weight:700; border-radius:8px; cursor:pointer; text-align:center; transition:all 0.2s;">
+                <span style="font-size:15px; display:block;"><?php echo $wOpt; ?></span>
+                <span style="font-size:12px; font-weight:600; opacity:0.85; display:block; margin-top:2px;">
+                  <?php echo format_price($wPricing['effective_price']); ?>
+                </span>
+              </button>
+            <?php endforeach; ?>
+          </div>
+          <input type="hidden" id="selectedProductWeight" value="<?php echo $defaultWeight; ?>">
+        </div>
+      <?php endif; ?>
+
       <!-- QUANTITY & ACTIONS -->
       <?php if ($product['stock_quantity'] > 0): ?>
-        <div style="display:flex; align-items:center; gap:20px; margin-top:30px;">
+        <div style="display:flex; align-items:center; gap:20px; margin-top:20px;">
           <div class="qty-selector">
-            <button class="qty-btn qty-minus">-</button>
+            <button type="button" class="qty-btn qty-minus">-</button>
             <input type="number" id="productQty" class="qty-input" value="1" min="1" max="<?php echo $product['stock_quantity']; ?>">
-            <button class="qty-btn qty-plus">+</button>
+            <button type="button" class="qty-btn qty-plus">+</button>
           </div>
 
-          <button class="btn btn-primary add-cart-btn" data-id="<?php echo $product['id']; ?>" style="padding:14px 28px;">
+          <button class="btn btn-primary add-cart-btn" data-id="<?php echo $product['id']; ?>" data-weight="<?php echo $defaultWeight; ?>" style="padding:14px 28px;">
             <i class="fas fa-cart-plus"></i> ADD TO CART
           </button>
 
@@ -303,6 +344,7 @@ $inWishlist = is_in_wishlist($product['id']);
           $img = $prod['primary_image'] ?? 'assets/images/products/default.jpg';
           $inWish = is_in_wishlist($prod['id']);
           $hasDisc = !empty($prod['discount_price']) && $prod['discount_price'] < $prod['price'];
+          $isVeg = is_vegetable_product($prod);
         ?>
           <div class="product-card">
             <button class="wishlist-btn <?php echo $inWish ? 'active' : ''; ?>" data-id="<?php echo $prod['id']; ?>" title="Wishlist">
@@ -319,8 +361,11 @@ $inWishlist = is_in_wishlist($product['id']);
               <?php echo render_rating_stars($prod['rating']); ?>
               <div class="product-price-row">
                 <span class="current-price"><?php echo format_price($hasDisc ? $prod['discount_price'] : $prod['price']); ?></span>
+                <?php if ($isVeg): ?>
+                  <span style="font-size:12px; font-weight:600; color:var(--success); margin-left:4px;">(per <?php echo sanitize($prod['weight'] ?? '500g'); ?>)</span>
+                <?php endif; ?>
               </div>
-              <button class="add-cart-btn" data-id="<?php echo $prod['id']; ?>"><i class="fas fa-cart-plus"></i> ADD TO CART</button>
+              <button class="add-cart-btn" data-id="<?php echo $prod['id']; ?>" <?php if ($isVeg): ?>data-weight="<?php echo sanitize($prod['weight'] ?? '500g'); ?>"<?php endif; ?>><i class="fas fa-cart-plus"></i> ADD TO CART</button>
             </div>
           </div>
         <?php endforeach; ?>
@@ -340,6 +385,7 @@ $inWishlist = is_in_wishlist($product['id']);
           $img = $prod['primary_image'] ?? 'assets/images/products/default.jpg';
           $inWish = is_in_wishlist($prod['id']);
           $hasDisc = !empty($prod['discount_price']) && $prod['discount_price'] < $prod['price'];
+          $isVeg = is_vegetable_product($prod);
         ?>
           <div class="product-card">
             <button class="wishlist-btn <?php echo $inWish ? 'active' : ''; ?>" data-id="<?php echo $prod['id']; ?>" title="Wishlist">
@@ -356,8 +402,11 @@ $inWishlist = is_in_wishlist($product['id']);
               <?php echo render_rating_stars($prod['rating']); ?>
               <div class="product-price-row">
                 <span class="current-price"><?php echo format_price($hasDisc ? $prod['discount_price'] : $prod['price']); ?></span>
+                <?php if ($isVeg): ?>
+                  <span style="font-size:12px; font-weight:600; color:var(--success); margin-left:4px;">(per <?php echo sanitize($prod['weight'] ?? '500g'); ?>)</span>
+                <?php endif; ?>
               </div>
-              <button class="add-cart-btn" data-id="<?php echo $prod['id']; ?>"><i class="fas fa-cart-plus"></i> ADD TO CART</button>
+              <button class="add-cart-btn" data-id="<?php echo $prod['id']; ?>" <?php if ($isVeg): ?>data-weight="<?php echo sanitize($prod['weight'] ?? '500g'); ?>"<?php endif; ?>><i class="fas fa-cart-plus"></i> ADD TO CART</button>
             </div>
           </div>
         <?php endforeach; ?>
