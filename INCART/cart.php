@@ -36,9 +36,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         is_array($_POST['quantities'])
     ) {
 
-        foreach ($_POST['quantities'] as $prodId => $qty) {
+        foreach ($_POST['quantities'] as $idKey => $qty) {
 
-            $prodId = (int) $prodId;
+            $idKey = (int) $idKey;
             $qty = (int) $qty;
 
             // Minimum quantity is 1
@@ -46,56 +46,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $qty = 1;
             }
 
-            // Check product and current stock
+            // Find matching cart item and product
             $pStmt = $db->prepare("
-                SELECT id, name, stock_quantity
-                FROM products
-                WHERE id = ?
+                SELECT ci.id, ci.product_id, p.stock_quantity
+                FROM cart_items ci
+                JOIN products p ON ci.product_id = p.id
+                WHERE ci.cart_id = ? AND (ci.id = ? OR ci.product_id = ?)
                 LIMIT 1
             ");
 
-            $pStmt->execute([$prodId]);
-            $product = $pStmt->fetch(PDO::FETCH_ASSOC);
+            $pStmt->execute([$cart_id, $idKey, $idKey]);
+            $cartRow = $pStmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$product) {
+            if (!$cartRow) {
                 continue;
             }
 
             // Do not allow quantity greater than available stock
-            if ($product['stock_quantity'] < 1) {
-
-                // Product is out of stock
-                $deleteStmt = $db->prepare("
-                    DELETE FROM cart_items
-                    WHERE cart_id = ?
-                    AND product_id = ?
-                ");
-
-                $deleteStmt->execute([
-                    $cart_id,
-                    $prodId
-                ]);
-
+            if ($cartRow['stock_quantity'] < 1) {
+                $deleteStmt = $db->prepare("DELETE FROM cart_items WHERE id = ?");
+                $deleteStmt->execute([$cartRow['id']]);
                 continue;
             }
 
-            if ($qty > (int)$product['stock_quantity']) {
-                $qty = (int)$product['stock_quantity'];
+            if ($qty > (int)$cartRow['stock_quantity']) {
+                $qty = (int)$cartRow['stock_quantity'];
             }
 
             // Update cart item
-            $updateStmt = $db->prepare("
-                UPDATE cart_items
-                SET quantity = ?
-                WHERE cart_id = ?
-                AND product_id = ?
-            ");
-
-            $updateStmt->execute([
-                $qty,
-                $cart_id,
-                $prodId
-            ]);
+            $updateStmt = $db->prepare("UPDATE cart_items SET quantity = ? WHERE id = ?");
+            $updateStmt->execute([$qty, $cartRow['id']]);
         }
 
         set_flash_success("Shopping cart updated successfully.");
@@ -110,23 +90,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     | Remove Item From Cart
     |--------------------------------------------------------------------------
     */
-    if (
-        isset($_POST['remove_item']) &&
-        isset($_POST['product_id'])
-    ) {
+    if (isset($_POST['remove_item'])) {
 
-        $prodId = (int) $_POST['product_id'];
+        $cartItemId = isset($_POST['cart_item_id']) ? (int)$_POST['cart_item_id'] : 0;
+        $prodId = isset($_POST['product_id']) ? (int)$_POST['product_id'] : 0;
 
-        $deleteStmt = $db->prepare("
-            DELETE FROM cart_items
-            WHERE cart_id = ?
-            AND product_id = ?
-        ");
-
-        $deleteStmt->execute([
-            $cart_id,
-            $prodId
-        ]);
+        if ($cartItemId > 0) {
+            $deleteStmt = $db->prepare("DELETE FROM cart_items WHERE cart_id = ? AND id = ?");
+            $deleteStmt->execute([$cart_id, $cartItemId]);
+        } elseif ($prodId > 0) {
+            $deleteStmt = $db->prepare("DELETE FROM cart_items WHERE cart_id = ? AND product_id = ?");
+            $deleteStmt->execute([$cart_id, $prodId]);
+        }
 
         set_flash_success("Item removed from your cart.");
 
@@ -148,12 +123,16 @@ $stmt = $db->prepare("
         ci.cart_id,
         ci.product_id,
         ci.quantity,
+        ci.selected_weight,
 
         p.name,
         p.price,
         p.discount_price,
         p.stock_quantity,
         p.unit,
+        p.weight,
+        p.category_id,
+        p.subcategory_id,
 
         pi.image_path AS primary_image
 
@@ -187,27 +166,15 @@ $totalDiscount = 0.00;
 
 foreach ($cartItems as $item) {
 
-    $regularPrice = (float) $item['price'];
+    $pricing = get_product_pricing($item, $item['selected_weight'] ?? null);
+    $regularPrice = $pricing['regular_price'];
+    $discountPrice = $pricing['discount_price'];
+    $effectivePrice = $pricing['effective_price'];
 
-    $discountPrice = !empty($item['discount_price'])
-        ? (float) $item['discount_price']
-        : 0.00;
-
-    // Use discount price only if it is lower than regular price
-    if (
-        $discountPrice > 0 &&
-        $discountPrice < $regularPrice
-    ) {
-
-        $effectivePrice = $discountPrice;
-
+    if ($pricing['has_discount']) {
         $totalDiscount +=
             ($regularPrice - $discountPrice)
             * (int)$item['quantity'];
-
-    } else {
-
-        $effectivePrice = $regularPrice;
     }
 
     $subtotal +=
@@ -370,23 +337,10 @@ $grandTotal = $subtotal + $deliveryFee;
                                     ? $item['primary_image']
                                     : 'assets/images/products/default.jpg';
 
-                                $regularPrice = (float)$item['price'];
-
-                                $discountPrice = !empty($item['discount_price'])
-                                    ? (float)$item['discount_price']
-                                    : 0.00;
-
-                                if (
-                                    $discountPrice > 0 &&
-                                    $discountPrice < $regularPrice
-                                ) {
-
-                                    $price = $discountPrice;
-
-                                } else {
-
-                                    $price = $regularPrice;
-                                }
+                                $pricing = get_product_pricing($item, $item['selected_weight'] ?? null);
+                                $price = $pricing['effective_price'];
+                                $regularPrice = $pricing['regular_price'];
+                                $discountPrice = $pricing['discount_price'];
 
                                 $quantity = (int)$item['quantity'];
 
@@ -455,13 +409,16 @@ $grandTotal = $subtotal + $deliveryFee;
                                                     style="
                                                         font-size:12px;
                                                         color:var(--gray-600);
+                                                        margin-top:3px;
                                                     "
                                                 >
-                                                    <?php
-                                                    echo sanitize(
-                                                        $item['unit']
-                                                    );
-                                                    ?>
+                                                    <?php if (!empty($item['selected_weight'])): ?>
+                                                        <span style="background:#e8f5e9; color:#2e7d32; font-weight:700; padding:2px 8px; border-radius:10px; font-size:11px; display:inline-block;">
+                                                            <i class="fas fa-weight-hanging"></i> Weight: <?php echo sanitize($item['selected_weight']); ?>
+                                                        </span>
+                                                    <?php else: ?>
+                                                        <?php echo sanitize($item['unit']); ?>
+                                                    <?php endif; ?>
                                                 </p>
 
                                             </div>
@@ -487,11 +444,15 @@ $grandTotal = $subtotal + $deliveryFee;
                                             ?>
                                         </span>
 
+                                        <?php if (!empty($item['selected_weight'])): ?>
+                                            <span style="font-size:11px; color:var(--gray-600); display:block;">
+                                                per <?php echo sanitize($item['selected_weight']); ?>
+                                            </span>
+                                        <?php endif; ?>
 
                                         <?php
                                         if (
-                                            $discountPrice > 0 &&
-                                            $discountPrice < $regularPrice
+                                            $pricing['has_discount']
                                         ):
                                         ?>
 
@@ -533,7 +494,7 @@ $grandTotal = $subtotal + $deliveryFee;
 
                                             <input
                                                 type="number"
-                                                name="quantities[<?php echo (int)$item['product_id']; ?>]"
+                                                name="quantities[<?php echo (int)$item['cart_item_id']; ?>]"
                                                 class="qty-input"
                                                 value="<?php echo $quantity; ?>"
                                                 min="1"
@@ -586,6 +547,8 @@ $grandTotal = $subtotal + $deliveryFee;
                                             onclick="
                                                 document.getElementById('removeProductId').value =
                                                 '<?php echo (int)$item['product_id']; ?>';
+                                                document.getElementById('removeCartItemId').value =
+                                                '<?php echo (int)$item['cart_item_id']; ?>';
                                             "
                                             style="
                                                 background:none;
@@ -614,12 +577,19 @@ $grandTotal = $subtotal + $deliveryFee;
                     </table>
 
 
-                    <!-- Hidden product ID for remove -->
+                    <!-- Hidden product and cart item IDs for remove -->
 
                     <input
                         type="hidden"
                         name="product_id"
                         id="removeProductId"
+                        value=""
+                    >
+
+                    <input
+                        type="hidden"
+                        name="cart_item_id"
+                        id="removeCartItemId"
                         value=""
                     >
 
@@ -913,112 +883,6 @@ $grandTotal = $subtotal + $deliveryFee;
 </div>
 
 
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-
-    const quantitySelectors =
-        document.querySelectorAll('.qty-selector');
-
-    quantitySelectors.forEach(function (selector) {
-
-        const minusButton =
-            selector.querySelector('.qty-minus');
-
-        const plusButton =
-            selector.querySelector('.qty-plus');
-
-        const input =
-            selector.querySelector('.qty-input');
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Minus Button
-        |--------------------------------------------------------------------------
-        */
-
-        if (minusButton) {
-
-            minusButton.addEventListener('click', function () {
-
-                let currentValue =
-                    parseInt(input.value) || 1;
-
-                if (currentValue > 1) {
-                    input.value = currentValue - 1;
-                }
-
-            });
-
-        }
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Plus Button
-        |--------------------------------------------------------------------------
-        */
-
-        if (plusButton) {
-
-            plusButton.addEventListener('click', function () {
-
-                let currentValue =
-                    parseInt(input.value) || 1;
-
-                const maxValue =
-                    parseInt(input.max) || 999999;
-
-                if (currentValue < maxValue) {
-                    input.value = currentValue + 1;
-                } else {
-                    alert(
-                        'You cannot add more than the available stock.'
-                    );
-                }
-
-            });
-
-        }
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Manual Input Validation
-        |--------------------------------------------------------------------------
-        */
-
-        input.addEventListener('change', function () {
-
-            let value =
-                parseInt(input.value) || 1;
-
-            const min =
-                parseInt(input.min) || 1;
-
-            const max =
-                parseInt(input.max) || 999999;
-
-            if (value < min) {
-                value = min;
-            }
-
-            if (value > max) {
-                value = max;
-
-                alert(
-                    'Quantity cannot exceed available stock.'
-                );
-            }
-
-            input.value = value;
-
-        });
-
-    });
-
-});
-</script>
 
 
 <?php
