@@ -43,6 +43,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_product'])) {
     $description    = trim($_POST['description'] ?? '');
     $short_desc     = trim($_POST['short_description'] ?? '');
     $featured       = isset($_POST['featured']) ? 1 : 0;
+    $daily_deal     = isset($_POST['daily_deal']) ? 1 : 0;
+    $best_seller    = isset($_POST['best_seller']) ? 1 : 0;
     $is_active      = isset($_POST['is_active']) ? 1 : 0;
 
     $slug = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name)));
@@ -59,20 +61,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_product'])) {
             // Update
             $upd = $db->prepare("
               UPDATE products 
-              SET category_id = ?, subcategory_id = ?, brand_id = ?, name = ?, slug = ?, sku = ?, description = ?, short_description = ?, price = ?, discount_price = ?, stock_quantity = ?, unit = ?, weight = ?, featured = ?, is_active = ?
+              SET category_id = ?, subcategory_id = ?, brand_id = ?, name = ?, slug = ?, sku = ?, description = ?, short_description = ?, price = ?, discount_price = ?, stock_quantity = ?, unit = ?, weight = ?, featured = ?, daily_deal = ?, best_seller = ?, is_active = ?
               WHERE id = ?
             ");
-            $upd->execute([$category_id, $subcategory_id, $brand_id, $name, $slug, $sku, $description, $short_desc, $price, $discount_price, $stock_quantity, $unit, $weight, $featured, $is_active, $id]);
+            $upd->execute([$category_id, $subcategory_id, $brand_id, $name, $slug, $sku, $description, $short_desc, $price, $discount_price, $stock_quantity, $unit, $weight, $featured, $daily_deal, $best_seller, $is_active, $id]);
             $product_id = $id;
             set_flash_success("Product '{$name}' updated successfully.");
         } else {
             // Insert
             $ins = $db->prepare("
               INSERT INTO products 
-              (category_id, subcategory_id, brand_id, name, slug, sku, description, short_description, price, discount_price, stock_quantity, unit, weight, featured, is_active)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (category_id, subcategory_id, brand_id, name, slug, sku, description, short_description, price, discount_price, stock_quantity, unit, weight, featured, daily_deal, best_seller, is_active)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
-            $ins->execute([$category_id, $subcategory_id, $brand_id, $name, $slug, $sku, $description, $short_desc, $price, $discount_price, $stock_quantity, $unit, $weight, $featured, $is_active]);
+            $ins->execute([$category_id, $subcategory_id, $brand_id, $name, $slug, $sku, $description, $short_desc, $price, $discount_price, $stock_quantity, $unit, $weight, $featured, $daily_deal, $best_seller, $is_active]);
             $product_id = $db->lastInsertId();
             set_flash_success("Product '{$name}' created successfully.");
         }
@@ -244,8 +246,10 @@ if (isset($_GET['edit'])) {
       <textarea name="description" rows="3" class="form-control"><?php echo sanitize($editProduct['description'] ?? ''); ?></textarea>
     </div>
 
-    <div style="display:flex; gap:20px; align-items:center; margin-bottom:20px;">
+    <div style="display:flex; gap:20px; align-items:center; flex-wrap:wrap; margin-bottom:20px;">
       <label><input type="checkbox" name="featured" value="1" <?php echo (!empty($editProduct['featured'])) ? 'checked' : ''; ?>> Mark as Featured Product</label>
+      <label><input type="checkbox" name="daily_deal" value="1" <?php echo (!empty($editProduct['daily_deal'])) ? 'checked' : ''; ?>> Mark as Daily Deal</label>
+      <label><input type="checkbox" name="best_seller" value="1" <?php echo (!empty($editProduct['best_seller'])) ? 'checked' : ''; ?>> Mark as Best Seller</label>
       <label><input type="checkbox" name="is_active" value="1" <?php echo (!isset($editProduct['is_active']) || $editProduct['is_active'] == 1) ? 'checked' : ''; ?>> Active / Visible on Store</label>
     </div>
 
