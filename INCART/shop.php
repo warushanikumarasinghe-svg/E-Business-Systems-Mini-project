@@ -151,6 +151,12 @@ $stmtProducts = $db->prepare($sql);
 $stmtProducts->execute($params);
 $products = $stmtProducts->fetchAll();
 
+// 5b. If search query yielded no direct products, find similar products
+$similarProducts = [];
+if (empty($products) && $search !== '') {
+    $similarProducts = get_similar_products($search, 12);
+}
+
 // 6. Fetch Sidebar Data (Active Categories, Subcategories, Brands)
 $allCategories = $db->query("SELECT * FROM categories WHERE is_active = 1 ORDER BY name ASC")->fetchAll();
 $allSubcategories = $subcat_id > 0 || $cat_id > 0 ? $db->query("SELECT * FROM subcategories WHERE is_active = 1" . ($cat_id > 0 ? " AND category_id = {$cat_id}" : "") . " ORDER BY name ASC")->fetchAll() : [];
@@ -279,9 +285,13 @@ $allBrands = $db->query("SELECT * FROM brands WHERE is_active = 1 ORDER BY name 
       <div class="shop-toolbar">
         <div>
           <span style="font-weight:700; font-size:15px; color:var(--dark);">
-            <?php echo $totalProducts; ?> <?php echo $totalProducts === 1 ? 'product' : 'products'; ?> found
-            <?php if ($search !== ''): ?>
-              for "<strong style="color:var(--primary);"><?php echo sanitize($search); ?></strong>"
+            <?php if (empty($products) && $search !== '' && !empty($similarProducts)): ?>
+              0 exact matches for "<strong style="color:var(--accent);"><?php echo sanitize($search); ?></strong>" (Showing <?php echo count($similarProducts); ?> similar products)
+            <?php else: ?>
+              <?php echo $totalProducts; ?> <?php echo $totalProducts === 1 ? 'product' : 'products'; ?> found
+              <?php if ($search !== ''): ?>
+                for "<strong style="color:var(--primary);"><?php echo sanitize($search); ?></strong>"
+              <?php endif; ?>
             <?php endif; ?>
           </span>
         </div>
@@ -304,12 +314,76 @@ $allBrands = $db->query("SELECT * FROM brands WHERE is_active = 1 ORDER BY name 
 
       <!-- PRODUCT GRID -->
       <?php if (empty($products)): ?>
-        <div style="background:var(--white); padding:60px; text-align:center; border-radius:var(--radius-md); box-shadow:var(--shadow-sm);">
-          <i class="fas fa-search" style="font-size:48px; color:var(--gray-300); margin-bottom:15px;"></i>
-          <h3 style="font-size:22px; font-weight:800; color:var(--dark); margin-bottom:8px;">No products found.</h3>
-          <p style="color:var(--gray-600); margin-bottom:20px;">Try adjusting your search criteria or clearing filters.</p>
-          <a href="shop.php" class="btn btn-primary">CLEAR FILTERS</a>
-        </div>
+        <?php if ($search !== '' && !empty($similarProducts)): ?>
+          <div style="background:var(--white); padding:20px 24px; border-radius:var(--radius-md); box-shadow:var(--shadow-sm); margin-bottom:25px; border-left:4px solid var(--accent); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:15px;">
+            <div style="display:flex; align-items:center; gap:16px;">
+              <div style="width:44px; height:44px; border-radius:50%; background:var(--accent-light); display:flex; align-items:center; justify-content:center; color:var(--accent); font-size:20px; flex-shrink:0;">
+                <i class="fas fa-magic"></i>
+              </div>
+              <div>
+                <h3 style="font-size:17px; font-weight:800; color:var(--dark); margin-bottom:3px;">No exact match for "<?php echo sanitize($search); ?>"</h3>
+                <p style="color:var(--gray-600); font-size:14px; margin:0;">We couldn't find an exact match, but here are similar products you might like:</p>
+              </div>
+            </div>
+            <a href="shop.php" class="btn btn-outline" style="font-size:13px; color:var(--dark); border-color:#ccc;"><i class="fas fa-times"></i> Clear Search</a>
+          </div>
+
+          <div class="product-grid">
+            <?php foreach ($similarProducts as $prod): 
+              $img = $prod['primary_image'] ?? 'assets/images/products/default.jpg';
+              $inWishlist = is_in_wishlist($prod['id']);
+              $hasDiscount = !empty($prod['discount_price']) && $prod['discount_price'] < $prod['price'];
+              $discountPercent = $hasDiscount ? round((($prod['price'] - $prod['discount_price']) / $prod['price']) * 100) : 0;
+              $isVeg = is_vegetable_product($prod);
+            ?>
+              <div class="product-card">
+                <?php if ($hasDiscount): ?>
+                  <span class="badge-discount"><?php echo $discountPercent; ?>% OFF</span>
+                <?php endif; ?>
+
+                <button class="wishlist-btn <?php echo $inWishlist ? 'active' : ''; ?>" data-id="<?php echo $prod['id']; ?>" title="Add to Wishlist">
+                  <i class="<?php echo $inWishlist ? 'fas' : 'far'; ?> fa-heart"></i>
+                </button>
+
+                <a href="product-details.php?id=<?php echo $prod['id']; ?>" class="product-img-wrapper">
+                  <img src="<?php echo sanitize($img); ?>" alt="<?php echo sanitize($prod['name']); ?>" loading="lazy" onerror="this.onerror=null; this.src='assets/images/products/default.jpg';">
+                </a>
+
+                <div class="product-info">
+                  <span class="product-brand"><?php echo sanitize($prod['brand_name'] ?? 'InCart'); ?></span>
+                  <h3 class="product-name">
+                    <a href="product-details.php?id=<?php echo $prod['id']; ?>" style="color:inherit;"><?php echo sanitize($prod['name']); ?></a>
+                  </h3>
+
+                  <?php echo render_rating_stars($prod['rating']); ?>
+
+                  <div class="product-price-row">
+                    <?php if ($hasDiscount): ?>
+                      <span class="current-price"><?php echo format_price($prod['discount_price']); ?></span>
+                      <span class="original-price"><?php echo format_price($prod['price']); ?></span>
+                    <?php else: ?>
+                      <span class="current-price"><?php echo format_price($prod['price']); ?></span>
+                    <?php endif; ?>
+                    <?php if ($isVeg): ?>
+                      <span style="font-size:12px; font-weight:600; color:var(--success); margin-left:4px;">(per <?php echo sanitize($prod['weight'] ?? '500g'); ?>)</span>
+                    <?php endif; ?>
+                  </div>
+
+                  <button class="add-cart-btn" data-id="<?php echo $prod['id']; ?>" <?php if ($isVeg): ?>data-weight="<?php echo sanitize($prod['weight'] ?? '500g'); ?>"<?php endif; ?>>
+                    <i class="fas fa-cart-plus"></i> ADD TO CART
+                  </button>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        <?php else: ?>
+          <div style="background:var(--white); padding:60px; text-align:center; border-radius:var(--radius-md); box-shadow:var(--shadow-sm);">
+            <i class="fas fa-search" style="font-size:48px; color:var(--gray-300); margin-bottom:15px;"></i>
+            <h3 style="font-size:22px; font-weight:800; color:var(--dark); margin-bottom:8px;">No products found.</h3>
+            <p style="color:var(--gray-600); margin-bottom:20px;">Try adjusting your search criteria or clearing filters.</p>
+            <a href="shop.php" class="btn btn-primary">CLEAR FILTERS</a>
+          </div>
+        <?php endif; ?>
       <?php else: ?>
         <div class="product-grid">
           <?php foreach ($products as $prod): 
