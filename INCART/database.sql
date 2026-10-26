@@ -86,6 +86,8 @@ CREATE TABLE `products` (
   `rating` DECIMAL(3,2) DEFAULT 5.00,
   `review_count` INT DEFAULT 0,
   `featured` TINYINT(1) DEFAULT 0,
+  `daily_deal` TINYINT(1) DEFAULT 0,
+  `best_seller` TINYINT(1) DEFAULT 0,
   `is_active` TINYINT(1) DEFAULT 1,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -95,6 +97,8 @@ CREATE TABLE `products` (
   INDEX idx_prod_name (`name`),
   INDEX idx_price (`price`),
   INDEX idx_featured (`featured`),
+  INDEX idx_daily_deal (`daily_deal`),
+  INDEX idx_best_seller (`best_seller`),
   INDEX idx_created (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
