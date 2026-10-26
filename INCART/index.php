@@ -26,29 +26,53 @@ $featuredStmt = $db->query("
 ");
 $featuredProducts = $featuredStmt->fetchAll();
 
-// 3. Fetch Daily Deals (discount_price IS NOT NULL)
+// 3. Fetch Daily Deals (daily_deal = 1)
 $dealsStmt = $db->query("
   SELECT p.*, b.name as brand_name, pi.image_path as primary_image
   FROM products p
   LEFT JOIN brands b ON p.brand_id = b.id
   LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1
-  WHERE p.is_active = 1 AND p.discount_price IS NOT NULL AND p.discount_price < p.price
-  ORDER BY (p.price - p.discount_price) DESC
+  WHERE p.is_active = 1 AND p.daily_deal = 1
+  ORDER BY (p.price - COALESCE(p.discount_price, p.price)) DESC, p.id DESC
   LIMIT 4
 ");
 $dailyDeals = $dealsStmt->fetchAll();
+if (empty($dailyDeals)) {
+  $dealsStmt = $db->query("
+    SELECT p.*, b.name as brand_name, pi.image_path as primary_image
+    FROM products p
+    LEFT JOIN brands b ON p.brand_id = b.id
+    LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1
+    WHERE p.is_active = 1 AND p.discount_price IS NOT NULL AND p.discount_price < p.price
+    ORDER BY (p.price - p.discount_price) DESC
+    LIMIT 4
+  ");
+  $dailyDeals = $dealsStmt->fetchAll();
+}
 
-// 4. Fetch Best Sellers
+// 4. Fetch Best Sellers (best_seller = 1)
 $bestsellersStmt = $db->query("
   SELECT p.*, b.name as brand_name, pi.image_path as primary_image
   FROM products p
   LEFT JOIN brands b ON p.brand_id = b.id
   LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1
-  WHERE p.is_active = 1
-  ORDER BY p.review_count DESC, p.rating DESC
+  WHERE p.is_active = 1 AND p.best_seller = 1
+  ORDER BY p.review_count DESC, p.rating DESC, p.id DESC
   LIMIT 4
 ");
 $bestSellers = $bestsellersStmt->fetchAll();
+if (empty($bestSellers)) {
+  $bestsellersStmt = $db->query("
+    SELECT p.*, b.name as brand_name, pi.image_path as primary_image
+    FROM products p
+    LEFT JOIN brands b ON p.brand_id = b.id
+    LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1
+    WHERE p.is_active = 1
+    ORDER BY p.review_count DESC, p.rating DESC
+    LIMIT 4
+  ");
+  $bestSellers = $bestsellersStmt->fetchAll();
+}
 ?>
 
 <!-- 1. HERO SECTION -->
@@ -242,11 +266,14 @@ $bestSellers = $bestsellersStmt->fetchAll();
         <?php foreach ($dailyDeals as $prod): 
           $img = $prod['primary_image'] ?? 'assets/images/products/default.jpg';
           $inWishlist = is_in_wishlist($prod['id']);
-          $discountPercent = round((($prod['price'] - $prod['discount_price']) / $prod['price']) * 100);
+          $hasDiscount = !empty($prod['discount_price']) && $prod['discount_price'] < $prod['price'];
+          $discountPercent = $hasDiscount ? round((($prod['price'] - $prod['discount_price']) / $prod['price']) * 100) : 0;
           $isVeg = is_vegetable_product($prod);
         ?>
           <div class="product-card">
-            <span class="badge-discount" style="background:#d32f2f;"><?php echo $discountPercent; ?>% OFF</span>
+            <?php if ($hasDiscount): ?>
+              <span class="badge-discount" style="background:#d32f2f;"><?php echo $discountPercent; ?>% OFF</span>
+            <?php endif; ?>
 
             <button class="wishlist-btn <?php echo $inWishlist ? 'active' : ''; ?>" data-id="<?php echo $prod['id']; ?>" title="Add to Wishlist">
               <i class="<?php echo $inWishlist ? 'fas' : 'far'; ?> fa-heart"></i>
@@ -265,8 +292,12 @@ $bestSellers = $bestsellersStmt->fetchAll();
               <?php echo render_rating_stars($prod['rating']); ?>
 
               <div class="product-price-row">
-                <span class="current-price" style="color:#d32f2f;"><?php echo format_price($prod['discount_price']); ?></span>
-                <span class="original-price"><?php echo format_price($prod['price']); ?></span>
+                <?php if ($hasDiscount): ?>
+                  <span class="current-price" style="color:#d32f2f;"><?php echo format_price($prod['discount_price']); ?></span>
+                  <span class="original-price"><?php echo format_price($prod['price']); ?></span>
+                <?php else: ?>
+                  <span class="current-price" style="color:var(--primary);"><?php echo format_price($prod['price']); ?></span>
+                <?php endif; ?>
                 <?php if ($isVeg): ?>
                   <span style="font-size:12px; font-weight:600; color:var(--success); margin-left:4px;">(per <?php echo sanitize($prod['weight'] ?? '500g'); ?>)</span>
                 <?php endif; ?>
