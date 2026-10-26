@@ -224,4 +224,139 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // 8. Live Search Auto-Suggest Engine
+  const searchInput = document.getElementById('headerSearchInput');
+  const searchForm = document.getElementById('headerSearchForm');
+  const suggestionsBox = document.getElementById('searchSuggestions');
+
+  if (searchInput && suggestionsBox) {
+    let debounceTimer = null;
+    let currentSelectedIndex = -1;
+
+    function closeSuggestions() {
+      suggestionsBox.style.display = 'none';
+      suggestionsBox.innerHTML = '';
+      currentSelectedIndex = -1;
+    }
+
+    function renderSuggestions(data) {
+      if (!data || !data.results || data.results.length === 0) {
+        closeSuggestions();
+        return;
+      }
+
+      currentSelectedIndex = -1;
+      let html = '';
+
+      if (data.is_similar) {
+        html += `<div class="search-suggestions-header"><i class="fas fa-magic" style="color:var(--accent);"></i> Similar Products</div>`;
+      } else {
+        html += `<div class="search-suggestions-header"><i class="fas fa-search" style="color:var(--primary);"></i> Matching Products</div>`;
+      }
+
+      data.results.forEach((prod, index) => {
+        html += `
+          <a href="${prod.url}" class="search-suggestion-item" data-index="${index}">
+            <img src="${prod.image}" alt="${prod.name}" class="search-suggestion-img" onerror="this.onerror=null; this.src='assets/images/products/default.jpg';">
+            <div class="search-suggestion-info">
+              <div class="search-suggestion-name">${prod.name}</div>
+              <div class="search-suggestion-meta">
+                <span>${prod.category}</span>
+                ${prod.discount_percent > 0 ? `<span style="color:var(--danger); font-weight:700;">${prod.discount_percent}% OFF</span>` : ''}
+              </div>
+            </div>
+            <div class="search-suggestion-price-col">
+              <div class="search-suggestion-price">${prod.price}</div>
+              ${prod.regular_price ? `<div class="search-suggestion-reg-price">${prod.regular_price}</div>` : ''}
+            </div>
+          </a>
+        `;
+      });
+
+      html += `
+        <div class="search-suggestions-footer" id="searchSuggestionsViewAll">
+          View all results for "<strong>${data.query}</strong>" <i class="fas fa-arrow-right" style="margin-left:4px;"></i>
+        </div>
+      `;
+
+      suggestionsBox.innerHTML = html;
+      suggestionsBox.style.display = 'block';
+
+      const viewAllBtn = document.getElementById('searchSuggestionsViewAll');
+      if (viewAllBtn && searchForm) {
+        viewAllBtn.addEventListener('click', () => {
+          searchForm.submit();
+        });
+      }
+    }
+
+    searchInput.addEventListener('input', function() {
+      const q = this.value.trim();
+      clearTimeout(debounceTimer);
+
+      if (q.length < 1) {
+        closeSuggestions();
+        return;
+      }
+
+      debounceTimer = setTimeout(() => {
+        fetch(`api/search_suggest.php?q=${encodeURIComponent(q)}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.status === 'success' && searchInput.value.trim() === q) {
+              renderSuggestions(data);
+            }
+          })
+          .catch(() => {
+            closeSuggestions();
+          });
+      }, 200);
+    });
+
+    // Keyboard navigation (Arrow Up, Arrow Down, Escape, Enter)
+    searchInput.addEventListener('keydown', function(e) {
+      if (suggestionsBox.style.display === 'none') return;
+      const items = suggestionsBox.querySelectorAll('.search-suggestion-item');
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (items.length > 0) {
+          currentSelectedIndex = (currentSelectedIndex + 1) % items.length;
+          items.forEach((item, idx) => {
+            item.classList.toggle('active', idx === currentSelectedIndex);
+          });
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (items.length > 0) {
+          currentSelectedIndex = (currentSelectedIndex - 1 + items.length) % items.length;
+          items.forEach((item, idx) => {
+            item.classList.toggle('active', idx === currentSelectedIndex);
+          });
+        }
+      } else if (e.key === 'Enter') {
+        if (currentSelectedIndex >= 0 && items[currentSelectedIndex]) {
+          e.preventDefault();
+          items[currentSelectedIndex].click();
+        }
+      } else if (e.key === 'Escape') {
+        closeSuggestions();
+      }
+    });
+
+    // Close when clicking outside
+    document.addEventListener('click', function(e) {
+      if (!searchInput.contains(e.target) && !suggestionsBox.contains(e.target)) {
+        closeSuggestions();
+      }
+    });
+
+    // Reopen suggestions if input is clicked and has text
+    searchInput.addEventListener('focus', function() {
+      if (this.value.trim().length >= 1 && suggestionsBox.innerHTML !== '') {
+        suggestionsBox.style.display = 'block';
+      }
+    });
+  }
+
 });
