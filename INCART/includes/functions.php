@@ -409,3 +409,176 @@ function get_product_pricing($product, $selectedWeight = null) {
         'has_discount' => ($discountPrice > 0 && $discountPrice < $regularPrice)
     ];
 }
+
+// Find Similar Products for Search Suggestions and Fallbacks
+function get_similar_products($query, $limit = 8) {
+    $db = getDB();
+    $query = strtolower(trim($query ?? ''));
+    if ($query === '') {
+        return [];
+    }
+
+    $stmt = $db->query("
+        SELECT p.*, c.name as category_name, sc.name as subcategory_name, b.name as brand_name, pi.image_path as primary_image
+        FROM products p
+        LEFT JOIN categories c ON p.category_id = c.id
+        LEFT JOIN subcategories sc ON p.subcategory_id = sc.id
+        LEFT JOIN brands b ON p.brand_id = b.id
+        LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1
+        WHERE p.is_active = 1
+    ");
+    $allProducts = $stmt->fetchAll();
+    if (empty($allProducts)) {
+        return [];
+    }
+
+    $rawWords = preg_split('/[\s,\.\-_+\/]+/', $query);
+    $words = [];
+    foreach ($rawWords as $w) {
+        $w = trim($w);
+        if (strlen($w) >= 2) {
+            $words[] = $w;
+        }
+    }
+
+    // Grocery intent/synonym dictionary to match categories even when the exact item isn't in catalog
+    $intentMappings = [
+        'fruits' => [
+            'keywords' => ['fruit', 'fruits', 'apple', 'banana', 'orange', 'mango', 'avocado', 'strawberry', 'berries', 'berry', 'grapes', 'papaya', 'pineapple', 'watermelon', 'guava', 'melon'],
+            'match' => ['fruit', 'fruits', 'fresh produce']
+        ],
+        'vegetables' => [
+            'keywords' => ['vegetable', 'vegetables', 'veg', 'vege', 'tomato', 'potato', 'carrot', 'onion', 'capsicum', 'beans', 'cabbage', 'leeks', 'greens', 'spinach', 'coriander', 'mint', 'garlic', 'ginger'],
+            'match' => ['vegetable', 'vegetables', 'herbs', 'fresh produce']
+        ],
+        'dairy' => [
+            'keywords' => ['dairy', 'milk', 'cheese', 'butter', 'yogurt', 'curd', 'egg', 'eggs', 'cream', 'anchor', 'highland'],
+            'match' => ['dairy', 'dairy & eggs', 'milk', 'cheese', 'butter', 'yogurt', 'eggs']
+        ],
+        'bakery' => [
+            'keywords' => ['bakery', 'bread', 'bun', 'cake', 'pastry', 'loaf', 'buns', 'cakes', 'cookies', 'toast', 'sandwich', 'croissant', 'bake', 'baked'],
+            'match' => ['bakery', 'bread', 'cakes', 'buns', 'pastries']
+        ],
+        'beverages' => [
+            'keywords' => ['beverage', 'beverages', 'drink', 'drinks', 'soda', 'coke', 'pepsi', 'fanta', 'sprite', 'necto', 'beer', 'juice', 'juices', 'tea', 'coffee', 'water', 'nescafe', 'dilmah', 'milo', 'soft'],
+            'match' => ['beverage', 'beverages', 'soft drinks', 'juices', 'tea', 'coffee', 'water']
+        ],
+        'snacks' => [
+            'keywords' => ['snack', 'snacks', 'biscuit', 'biscuits', 'cookie', 'cookies', 'chocolate', 'chocolates', 'chips', 'crisps', 'nuts', 'cashew', 'cracker', 'crackers', 'maliban', 'munchee', 'kitkat'],
+            'match' => ['snacks', 'biscuits', 'chocolates', 'chips', 'nuts']
+        ],
+        'meat' => [
+            'keywords' => ['meat', 'chicken', 'beef', 'pork', 'mutton', 'fish', 'seafood', 'sausage', 'drumstick', 'drumsticks', 'frozen', 'prawns'],
+            'match' => ['frozen foods', 'frozen meat', 'meat']
+        ],
+        'household' => [
+            'keywords' => ['cleaning', 'cleaner', 'wash', 'washing', 'soap', 'powder', 'detergent', 'sunlight', 'vim', 'comfort', 'kitchen', 'laundry'],
+            'match' => ['household essentials', 'cleaning', 'kitchen', 'laundry']
+        ],
+        'personal' => [
+            'keywords' => ['shampoo', 'soap', 'body', 'hair', 'skin', 'lotion', 'face', 'toothpaste', 'brush', 'oral', 'signal', 'creme', 'cream'],
+            'match' => ['personal care', 'hair care', 'skin care', 'oral care']
+        ]
+    ];
+
+    $matchedTargetTerms = [];
+    foreach ($words as $w) {
+        foreach ($intentMappings as $intent) {
+            foreach ($intent['keywords'] as $kw) {
+                if ($w === $kw || (strlen($w) >= 4 && strlen($kw) >= 4 && levenshtein($w, $kw) <= 1)) {
+                    foreach ($intent['match'] as $m) {
+                        $matchedTargetTerms[$m] = true;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    $scores = [];
+
+    foreach ($allProducts as $p) {
+        $name = strtolower($p['name']);
+        $cat = strtolower($p['category_name'] ?? '');
+        $subcat = strtolower($p['subcategory_name'] ?? '');
+        $brand = strtolower($p['brand_name'] ?? '');
+        $desc = strtolower($p['short_description'] ?? '') . ' ' . strtolower($p['description'] ?? '');
+        $score = 0;
+
+        // Substring matching on whole query
+        if (strpos($name, $query) !== false) {
+            $score += 100;
+        } elseif (strpos($desc, $query) !== false) {
+            $score += 40;
+        }
+
+        // Word-level matching
+        foreach ($words as $w) {
+            if (strpos($name, $w) !== false) $score += 60;
+            if (strpos($cat, $w) !== false) $score += 35;
+            if (strpos($subcat, $w) !== false) $score += 40;
+            if (strpos($brand, $w) !== false) $score += 30;
+            if (strpos($desc, $w) !== false) $score += 20;
+
+            // Check words within product name for Soundex & Levenshtein
+            $pWords = preg_split('/[\s,\.\-_+\/]+/', $name);
+            foreach ($pWords as $pw) {
+                if (strlen($pw) < 2) continue;
+                if (soundex($w) === soundex($pw)) {
+                    $score += 25;
+                }
+                $lev = levenshtein($w, $pw);
+                if ($lev <= 2) {
+                    $score += max(0, 35 - ($lev * 10));
+                }
+            }
+        }
+
+        // Boost score if product belongs to matched intent categories/subcategories
+        if (!empty($matchedTargetTerms)) {
+            foreach (array_keys($matchedTargetTerms) as $term) {
+                if (strpos($cat, $term) !== false || strpos($subcat, $term) !== false) {
+                    $score += 60;
+                }
+            }
+        }
+
+        // Similarity percentage on full product name
+        similar_text($query, $name, $simPercent);
+        $score += ($simPercent * 0.7);
+
+        if ($score >= 18) {
+            $scores[$p['id']] = [
+                'score' => $score,
+                'product' => $p
+            ];
+        }
+    }
+
+    if (!empty($scores)) {
+        uasort($scores, function($a, $b) {
+            return $b['score'] <=> $a['score'];
+        });
+        $results = [];
+        foreach ($scores as $item) {
+            $results[] = $item['product'];
+            if (count($results) >= $limit) break;
+        }
+        return $results;
+    }
+
+    // Fallback: If no similar words/soundex match, return top-rated & popular products as recommendations
+    $stmtFallback = $db->query("
+        SELECT p.*, c.name as category_name, sc.name as subcategory_name, b.name as brand_name, pi.image_path as primary_image
+        FROM products p
+        LEFT JOIN categories c ON p.category_id = c.id
+        LEFT JOIN subcategories sc ON p.subcategory_id = sc.id
+        LEFT JOIN brands b ON p.brand_id = b.id
+        LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1
+        WHERE p.is_active = 1
+        ORDER BY p.featured DESC, p.review_count DESC, p.rating DESC
+        LIMIT " . (int)$limit . "
+    ");
+    return $stmtFallback->fetchAll();
+}
+
