@@ -52,12 +52,13 @@ $user = current_user();
 
         <!-- GLOBAL SEARCH BAR -->
         <div class="header-search">
-          <form action="shop.php" method="GET" class="search-form">
-            <input type="text" name="search" class="search-input" placeholder="Search products, brands and groceries..." value="<?php echo isset($_GET['search']) ? sanitize($_GET['search']) : ''; ?>" required>
-            <button type="submit" class="search-btn">
+          <form action="shop.php" method="GET" class="search-form" id="headerSearchForm">
+            <input type="text" name="search" id="headerSearchInput" class="search-input" placeholder="Search products, brands and groceries..." value="<?php echo isset($_GET['search']) ? sanitize($_GET['search']) : ''; ?>" required autocomplete="off">
+            <button type="submit" class="search-btn" aria-label="Search">
               <i class="fas fa-search"></i>
             </button>
           </form>
+          <div id="searchSuggestions" class="search-suggestions" style="display:none;"></div>
         </div>
 
         <!-- HEADER ACTIONS -->
